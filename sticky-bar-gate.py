@@ -233,6 +233,85 @@ with sync_playwright() as p:
                           f"{W} menu CTA label {contrast(cfg, cbg):.2f}:1 on its fill")
             check(not m["spill"], f"{W} menu spills sideways")
 
+        # ---- the mark goes home -------------------------------------
+        shape = pg.evaluate(
+            """() => {const a = document.querySelector('.itt-logo');
+               return {tag: a && a.tagName, href: a && a.getAttribute('href'),
+                       resolves: !!document.getElementById('top'),
+                       topOffset: document.getElementById('top')
+                         ? Math.round(document.getElementById('top')
+                             .getBoundingClientRect().top + scrollY) : null,
+                       focusable: a ? a.tabIndex >= 0 : false};}"""
+        )
+        check(shape["tag"] == "A", f"{W} logo is not a link ({shape['tag']})")
+        check(shape["href"] == "#top", f"{W} logo href = {shape['href']}")
+        check(shape["resolves"], f"{W} logo href has no target in the document")
+        check(shape["topOffset"] == 0,
+              f"{W} #top is not at document 0 ({shape['topOffset']})")
+        check(shape["focusable"], f"{W} logo is not reachable by keyboard")
+
+        # from the far end of the page, by mouse
+        pg.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+        pg.wait_for_timeout(300)
+        deep = pg.evaluate("()=>window.scrollY")
+        check(deep > 1000, f"{W} could not scroll deep enough to test ({deep})")
+        pg.click(".itt-logo")
+        pg.wait_for_timeout(1400)          # the return is smooth, so wait it out
+        end = pg.evaluate(
+            """() => {const bar = document.getElementById('itt-bar');
+               return {y: Math.round(window.scrollY),
+                       stuck: bar.getAttribute('data-stuck'),
+                       ground: bar.getAttribute('data-ground'),
+                       bg: getComputedStyle(bar).backgroundColor,
+                       hash: location.hash};}"""
+        )
+        check(end["y"] == 0, f"{W} logo click landed at {end['y']}, not the top")
+        check(end["stuck"] == "0", f"{W} bar still stuck after going home")
+        check(end["ground"] == "dark", f"{W} bar ground={end['ground']} at the top")
+        check("rgba(0, 0, 0, 0)" in end["bg"],
+              f"{W} bar not transparent again at the top ({end['bg']})")
+        check(end["hash"] == "", f"{W} logo click left {end['hash']} in the URL")
+
+        # and by keyboard
+        pg.evaluate("window.scrollTo(0, 1600)")
+        pg.wait_for_timeout(250)
+        pg.evaluate("()=>document.querySelector('.itt-logo').focus()")
+        pg.keyboard.press("Enter")
+        pg.wait_for_timeout(1400)
+        check(pg.evaluate("()=>Math.round(window.scrollY)") == 0,
+              f"{W} Enter on the focused logo did not go home")
+
+        # with the menu open, it must go home AND shut the menu behind it
+        if W <= 960:
+            pg.evaluate("window.scrollTo(0, 1600)")
+            pg.wait_for_timeout(250)
+            pg.click('[data-m="burger"]')
+            pg.wait_for_timeout(400)
+            check(pg.evaluate(
+                """()=>getComputedStyle(document.querySelector(
+                   '#itt-bar [data-m="mobilemenu"]')).display !== 'none'"""),
+                f"{W} menu did not open before the home test")
+            pg.click(".itt-logo")
+            pg.wait_for_timeout(1400)
+            after = pg.evaluate(
+                """() => {const m = document.querySelector(
+                   '#itt-bar [data-m="mobilemenu"]');
+                   return {y: Math.round(window.scrollY),
+                           open: getComputedStyle(m).display !== 'none',
+                           attr: m.getAttribute('data-open')};}"""
+            )
+            check(after["y"] == 0, f"{W} logo click with the menu open landed at {after['y']}")
+            check(not after["open"], f"{W} menu stayed open after going home")
+            # the burger must still work afterwards, i.e. state is not desynced
+            pg.click('[data-m="burger"]')
+            pg.wait_for_timeout(400)
+            check(pg.evaluate(
+                """()=>getComputedStyle(document.querySelector(
+                   '#itt-bar [data-m="mobilemenu"]')).display !== 'none'"""),
+                f"{W} burger stopped working after the logo closed the menu")
+            pg.click('[data-m="burger"]')
+            pg.wait_for_timeout(300)
+
         check(not errs, f"{W} script errors: {errs}")
         print(f"  {W}px  {len(stops)} scroll positions")
         pg.close()

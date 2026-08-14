@@ -67,12 +67,21 @@ if tpl.count(old_logo) != 1:
     sys.exit("logo markup not found exactly once; the export has changed shape")
 tpl = tpl.replace(
     old_logo,
-    '<span class="itt-logo">'
+    # a real href, so going home survives with no script, and works with the
+    # keyboard and middle-click. The handler only adds the smooth return.
+    '<a class="itt-logo" href="#top">'
     '<img class="itt-logo-cream" src="%s" alt="ittmatters">'
     '<img class="itt-logo-ink" src="%s" alt="" aria-hidden="true">'
-    "</span>" % (LIGHT_UUID, DARK_UUID),
+    "</a>" % (LIGHT_UUID, DARK_UUID),
     1,
 )
+
+# #top is the root wrapper, whose top edge IS document position 0, so the
+# native jump lands on the opening view with the bar transparent again.
+root = '<div style="background:#0b0b0f;color:#f4f2ec;min-height:100vh'
+if tpl.count(root) != 1:
+    sys.exit("root wrapper not found exactly once")
+tpl = tpl.replace(root, '<div id="top" style="background:#0b0b0f;color:#f4f2ec;min-height:100vh', 1)
 
 # ── 3. the nav and the mobile menu travel together in one sticky wrapper ──
 nav_open = '<nav data-m="nav"'
@@ -123,7 +132,9 @@ html,body{overflow-x:clip!important}
 #itt-bar[data-switching="1"][data-switching="1"] *{transition:none!important}
 
 /* the mark: both files stacked, one fading into the other */
-.itt-logo{position:relative!important;display:block!important;height:34px!important}
+.itt-logo{position:relative!important;display:block!important;height:34px!important;
+  cursor:pointer!important}
+.itt-logo:focus-visible{outline:2px solid #E8004C!important;outline-offset:6px!important}
 .itt-logo img{height:100%!important;width:auto!important;display:block!important}
 .itt-logo .itt-logo-ink{position:absolute!important;left:0!important;top:0!important;opacity:0!important}
 #itt-bar[data-ground="light"] .itt-logo .itt-logo-cream{opacity:0!important}
@@ -212,7 +223,34 @@ JS = """
   }
   function tick(){ if (!queued){ queued = true; requestAnimationFrame(apply); } }
 
+  /* The mark goes home. The href already does this with no script at all;
+     this only adds the smooth return and shuts the menu behind it, and it is
+     delegated off the document so a re-render of the bar cannot detach it. */
+  function home(e){
+    var t = e.target;
+    if (!t || t.nodeType !== 1 || !t.closest) return;
+    if (!t.closest('.itt-logo')) return;
+    if (e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey
+        || e.altKey) return;                 /* let open-in-new-tab through */
+    e.preventDefault();
+
+    var bar = document.getElementById('itt-bar');
+    var menu = bar && bar.querySelector('[data-m="mobilemenu"]');
+    if (menu && menu.getAttribute('data-open') === '1'){
+      var burger = bar.querySelector('[data-m="burger"]');
+      /* their own toggle, so the component's idea of the state stays true */
+      if (burger) burger.click();
+    }
+
+    var still = window.matchMedia
+             && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    try { window.scrollTo({top:0, left:0, behavior: still ? 'auto' : 'smooth'}); }
+    catch (err) { window.scrollTo(0, 0); }
+    tick();
+  }
+
   function start(){
+    document.addEventListener('click', home);
     window.addEventListener('scroll', tick, {passive:true});
     window.addEventListener('resize', tick);
     /* a re-render drops the attributes back to the template defaults; watching
